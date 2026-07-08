@@ -1,0 +1,16 @@
+{
+  "name": "wavetrend-replay",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Terminal bar-replay and live paper-trading harness for a WaveTrend / Market Cipher B reconstruction. Zero dependencies.",
+  "main": "replay.js",
+  "scripts": {
+    "replay": "node replay.js",
+    "live": "node replay.js --live",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}
