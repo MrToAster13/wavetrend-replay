@@ -36,7 +36,7 @@ The `--symbol` / `--tf` defaults also read from the `SYMBOL`, `TIMEFRAME`, and `
 
 ## Honest origin
 
-I built this replay engine from scratch as an addition to a fork of someone else's Claude + TradingView trading bot. The bot's live-order code is not mine and does not ship here — this repo is only the replay/backtest engine, which I wrote end to end. No third-party trading code is included.
+This repo was extracted from a fork of someone else's Claude + TradingView trading bot — that's its origin, and I flag it first. What ships here is only the replay/backtest engine, and I wrote that engine from scratch, end to end. The bot's live-order code is not mine, does not ship here, and no third-party trading code is included.
 
 The Market Cipher reconstruction approximates the paid indicator from public WaveTrend formulas, so treat backtest results as directional, not precise. This is a learning and backtesting tool, not trading advice.
 
