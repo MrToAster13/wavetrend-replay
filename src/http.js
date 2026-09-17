@@ -14,6 +14,8 @@
  *      An HTTP failure is only tagged `recoverable` when the status itself is
  *      transient (408, 429, 5xx); a permanent 4xx (401, 404, ...) is not,
  *      since retrying it can't succeed and just repeats a broken request.
+ *      That classification runs on the status alone, so a non-JSON error
+ *      body (an HTML page from a proxy) can't smuggle a 401 into a retry.
  *   4. Retry — opt-in (`retries`) for idempotent GETs, so a single transient
  *      timeout doesn't kill a long replay. Never used for order POSTs.
  */
@@ -75,19 +77,29 @@ async function attemptFetch(url, { method = "GET", headers, body, timeoutMs = DE
   }
 
   let json = null;
+  let parseFailed = false;
   if (text) {
     try {
       json = JSON.parse(text);
     } catch {
-      throw recoverable(`non-JSON response from ${hostOf(url)} (HTTP ${res.status})`);
+      parseFailed = true;
     }
   }
 
+  // Classify a non-2xx by its status FIRST, whatever the body looks like. A
+  // proxy's HTML error page on a 401 is still a 401: retrying can't fix it,
+  // and the caller needs to see the status, not a parse complaint (ELI-260).
   if (!res.ok) {
-    const suffix = json?.msg ? `: ${json.msg}` : "";
+    const suffix = json?.msg ? `: ${json.msg}` : parseFailed ? " (non-JSON body)" : "";
     const message = `HTTP ${res.status} from ${hostOf(url)}${suffix}`;
     if (isRecoverableStatus(res.status)) throw recoverable(message);
     throw new Error(message);
+  }
+
+  // A 2xx whose body isn't JSON is a transport-level surprise (truncated
+  // stream, captive portal), so it stays recoverable.
+  if (parseFailed) {
+    throw recoverable(`non-JSON response from ${hostOf(url)} (HTTP ${res.status})`);
   }
 
   return json;
