@@ -205,6 +205,60 @@ test("repeated runs at the same attempt number do not all produce the same delay
   }
 });
 
+test("past the cap, different random draws still produce different delays", async () => {
+  // Attempt 8 with a 400ms base is 102400ms uncapped, far past the 10s cap.
+  // Before the fix the cap was applied after the jitter multiply, so every
+  // draw collapsed onto exactly 10000 and the herd woke in lockstep.
+  const stub = stubFetch(() => jsonResponse(503, { msg: "unavailable" }));
+  const delaysAt = async (draw) => {
+    const sleepSpy = spySleep();
+    await assert.rejects(() =>
+      fetchJson("https://example.com/candles", {
+        retries: 9,
+        retryDelayMs: 400,
+        sleep: sleepSpy.fn,
+        random: () => draw,
+      }),
+    );
+    return sleepSpy.delays;
+  };
+  try {
+    const low = await delaysAt(0);
+    const mid = await delaysAt(0.2);
+    const high = await delaysAt(1);
+    for (const delays of [low, mid, high]) assert.equal(delays.length, 9);
+    // capped attempts land in [7500, 10000], never above the cap
+    assert.equal(low.at(-1), 7500);
+    assert.equal(mid.at(-1), 8500);
+    assert.equal(high.at(-1), 10000);
+    assert.notEqual(low.at(-1), mid.at(-1));
+    for (const delays of [low, mid, high]) {
+      for (const delay of delays) assert.ok(delay <= 10000, `delay ${delay} exceeded the cap`);
+    }
+  } finally {
+    stub.restore();
+  }
+});
+
+test("retryDelayMs: 0 yields a zero delay at every attempt", async () => {
+  const stub = stubFetch(() => jsonResponse(503, { msg: "unavailable" }));
+  const sleepSpy = spySleep();
+  try {
+    await assert.rejects(() =>
+      fetchJson("https://example.com/candles", {
+        retries: 12,
+        retryDelayMs: 0,
+        sleep: sleepSpy.fn,
+        random: () => 1,
+      }),
+    );
+    assert.equal(sleepSpy.delays.length, 12);
+    assert.deepEqual(sleepSpy.delays, new Array(12).fill(0));
+  } finally {
+    stub.restore();
+  }
+});
+
 test("a call with retries: 0 still sleeps zero times", async () => {
   const stub = stubFetch(() => jsonResponse(503, { msg: "unavailable" }));
   const sleepSpy = spySleep();
