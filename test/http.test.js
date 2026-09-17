@@ -294,3 +294,67 @@ test("a non-JSON body is still recoverable", async () => {
     stub.restore();
   }
 });
+
+// ELI-260: a body that is not JSON must not bypass the status classification.
+// An HTML error page from a proxy in front of the exchange is the realistic
+// trigger — the status is the real cause, the parse failure is a symptom.
+
+function textResponse(status, body) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => body,
+  };
+}
+
+test("a 401 with a non-JSON body issues exactly one request and is not tagged recoverable", async () => {
+  const stub = stubFetch(() => textResponse(401, "<html>Unauthorized</html>"));
+  try {
+    await assert.rejects(
+      () => fetchJson("https://example.com/orders", { retries: 3, retryDelayMs: 0 }),
+      (err) => {
+        assert.notEqual(err.recoverable, true);
+        // leads with the status: the real cause, not a parse complaint
+        assert.match(err.message, /^HTTP 401 from example\.com/);
+        return true;
+      },
+    );
+    assert.equal(stub.callCount(), 1);
+  } finally {
+    stub.restore();
+  }
+});
+
+test("a 503 with a non-JSON body still retries", async () => {
+  const stub = stubFetch(() => textResponse(503, "<html>Service Unavailable</html>"));
+  try {
+    await assert.rejects(
+      () => fetchJson("https://example.com/candles", { retries: 3, retryDelayMs: 0 }),
+      (err) => {
+        assert.equal(err.recoverable, true);
+        assert.match(err.message, /HTTP 503/);
+        return true;
+      },
+    );
+    assert.equal(stub.callCount(), 4);
+  } finally {
+    stub.restore();
+  }
+});
+
+test("a 401 with an empty body issues exactly one request", async () => {
+  const stub = stubFetch(() => textResponse(401, ""));
+  try {
+    await assert.rejects(
+      () => fetchJson("https://example.com/orders", { retries: 3, retryDelayMs: 0 }),
+      (err) => {
+        assert.notEqual(err.recoverable, true);
+        assert.match(err.message, /HTTP 401/);
+        return true;
+      },
+    );
+    assert.equal(stub.callCount(), 1);
+  } finally {
+    stub.restore();
+  }
+});
