@@ -19,6 +19,7 @@
  */
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+const MAX_RETRY_DELAY_MS = 10_000;
 
 function hostOf(url) {
   try {
@@ -44,6 +45,18 @@ function isRecoverableStatus(status) {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Delay before the retry that follows a failed `attempt` (zero indexed: the
+// delay before attempt 2 uses attempt=0). Exponential base, +/-25% jitter so
+// several callers retrying at once don't all wake in lockstep and hammer a
+// recovering endpoint together, capped at MAX_RETRY_DELAY_MS *after* jitter
+// so the cap is never exceeded. `random` is injectable so tests can assert
+// exact delays instead of asserting on distributions.
+function backoffDelay(attempt, retryDelayMs, random) {
+  const base = retryDelayMs * 2 ** attempt;
+  const jitterFactor = 0.75 + random() * 0.5; // uniform in [0.75, 1.25]
+  return Math.min(base * jitterFactor, MAX_RETRY_DELAY_MS);
+}
 
 async function attemptFetch(url, { method = "GET", headers, body, timeoutMs = DEFAULT_TIMEOUT_MS }) {
   let res;
@@ -77,17 +90,26 @@ async function attemptFetch(url, { method = "GET", headers, body, timeoutMs = DE
   return json;
 }
 
-// opts: { method, headers, body, timeoutMs, retries, retryDelayMs }
+// opts: { method, headers, body, timeoutMs, retries, retryDelayMs, sleep, random }
 // retries defaults to 0 — pass it ONLY for idempotent GETs (never order POSTs,
 // which must not be re-sent on a transient error).
+// `sleep` and `random` are test seams (default to the real sleeper and
+// Math.random) so the backoff schedule can be asserted without waiting on
+// the wall clock or asserting on randomness directly.
 export async function fetchJson(url, opts = {}) {
-  const { retries = 0, retryDelayMs = 400, ...rest } = opts;
+  const {
+    retries = 0,
+    retryDelayMs = 400,
+    sleep: sleepFn = sleep,
+    random = Math.random,
+    ...rest
+  } = opts;
   for (let attempt = 0; ; attempt++) {
     try {
       return await attemptFetch(url, rest);
     } catch (err) {
       if (!err.recoverable || attempt >= retries) throw err;
-      await sleep(retryDelayMs);
+      await sleepFn(backoffDelay(attempt, retryDelayMs, random));
     }
   }
 }
