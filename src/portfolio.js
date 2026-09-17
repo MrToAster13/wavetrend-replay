@@ -60,6 +60,12 @@ export function createPortfolio({
       const closed = trades.length;
       const avg = (arr) =>
         arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+      const grossProfit = trades
+        .filter((t) => t.win)
+        .reduce((sum, t) => sum + t.pnlPct, 0);
+      const grossLoss = trades
+        .filter((t) => !t.win)
+        .reduce((sum, t) => sum + Math.abs(t.pnlPct), 0);
       return {
         equity,
         startEquity,
@@ -71,6 +77,7 @@ export function createPortfolio({
         avgWinPct: avg(trades.filter((t) => t.win).map((t) => t.pnlPct)),
         avgLossPct: avg(trades.filter((t) => !t.win).map((t) => t.pnlPct)),
         maxDrawdownPct: maxDD * 100,
+        profitFactor: closed && grossLoss ? grossProfit / grossLoss : null,
         open: position,
         allTrades: trades,
       };
