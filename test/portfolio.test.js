@@ -30,3 +30,65 @@ test("tracks max drawdown across trades", () => {
   assert.ok(s.maxDrawdownPct >= 10 - 1e-9, `maxDD ${s.maxDrawdownPct}`);
   assert.ok(Math.abs(s.returnPct - -1) < 1e-9, `return ${s.returnPct}`); // 0.9*1.1 = 0.99
 });
+
+test("profitFactor is null when there are no closed trades", () => {
+  const p = createPortfolio({ startEquity: 1000 });
+  const s = p.stats();
+  assert.equal(s.trades, 0);
+  assert.equal(s.profitFactor, null);
+});
+
+test("profitFactor is null when every closed trade is a winner (no gross loss)", () => {
+  const p = createPortfolio({ startEquity: 1000, feeRate: 0 });
+  p.enterLong(100, 1);
+  p.exitLong(110, 2); // +10%
+  p.enterLong(100, 3);
+  p.exitLong(105, 4); // +5%
+  p.enterLong(100, 5);
+  p.exitLong(120, 6); // +20%
+  const s = p.stats();
+  assert.equal(s.trades, 3);
+  assert.equal(s.wins, 3);
+  assert.equal(s.profitFactor, null);
+});
+
+test("profitFactor is gross profit over gross loss for a mixed trade set", () => {
+  const p = createPortfolio({ startEquity: 1000, feeRate: 0 });
+  p.enterLong(100, 1);
+  p.exitLong(110, 2); // +10% win
+  p.enterLong(100, 3);
+  p.exitLong(90, 4); // −10% loss
+  p.enterLong(100, 5);
+  p.exitLong(105, 6); // +5% win
+  p.enterLong(100, 7);
+  p.exitLong(95, 8); // −5% loss
+  const s = p.stats();
+  // gross profit = 10 + 5 = 15, gross loss = 10 + 5 = 15 (in pnlPct magnitude)
+  // hand computed, not recomputed by the same formula as the implementation
+  assert.equal(s.profitFactor, 1);
+});
+
+test("an open position at stats() time does not count toward profitFactor", () => {
+  const p = createPortfolio({ startEquity: 1000, feeRate: 0 });
+  p.enterLong(100, 1);
+  p.exitLong(110, 2); // +10% win
+  p.enterLong(100, 3);
+  p.exitLong(90, 4); // −10% loss
+  p.enterLong(100, 5); // open, unrealized, not part of the sample
+  const s = p.stats();
+  assert.equal(s.trades, 2);
+  assert.ok(s.open !== null);
+  assert.equal(s.profitFactor, 1);
+});
+
+test("existing stats fields are unchanged by profitFactor", () => {
+  const p = createPortfolio({ startEquity: 1000, feeRate: 0.001 });
+  p.enterLong(100, 1);
+  p.exitLong(110, 2);
+  const s = p.stats();
+  assert.equal(s.trades, 1);
+  assert.equal(s.wins, 1);
+  assert.equal(s.losses, 0);
+  assert.ok(Math.abs(s.returnPct - 9.8) < 1e-6);
+  assert.ok("profitFactor" in s);
+});
