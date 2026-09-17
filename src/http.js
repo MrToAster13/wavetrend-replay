@@ -49,11 +49,14 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Delay before the retry that follows a failed `attempt` (zero indexed: the
 // delay before attempt 2 uses attempt=0). Exponential base, +/-25% jitter so
 // several callers retrying at once don't all wake in lockstep and hammer a
-// recovering endpoint together, capped at MAX_RETRY_DELAY_MS *after* jitter
-// so the cap is never exceeded. `random` is injectable so tests can assert
-// exact delays instead of asserting on distributions.
+// recovering endpoint together. The base is capped at MAX_RETRY_DELAY_MS
+// *before* the jitter multiply: capping after it would collapse every draw
+// past attempt 6 onto exactly the cap and bring the lockstep wake-up back.
+// The result is clamped once more so the cap is never exceeded, which leaves
+// capped attempts spread across [0.75 * cap, cap]. `random` is injectable so
+// tests can assert exact delays instead of asserting on distributions.
 function backoffDelay(attempt, retryDelayMs, random) {
-  const base = retryDelayMs * 2 ** attempt;
+  const base = Math.min(retryDelayMs * 2 ** attempt, MAX_RETRY_DELAY_MS);
   const jitterFactor = 0.75 + random() * 0.5; // uniform in [0.75, 1.25]
   return Math.min(base * jitterFactor, MAX_RETRY_DELAY_MS);
 }
