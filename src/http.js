@@ -7,10 +7,13 @@
  *      undici) and, in auto mode, blocks the fallback from even starting.
  *   2. Error body — on a non-2xx we parse the JSON body and surface its `msg`,
  *      instead of throwing away the one field that says what went wrong.
- *   3. `recoverable` tag — network / timeout / HTTP / non-JSON failures are
- *      tagged `recoverable` (INCLUDING failures while reading the body, which
- *      undici streams lazily after the headers arrive), so the auto data-source
+ *   3. `recoverable` tag — network / timeout / non-JSON failures are tagged
+ *      `recoverable` (INCLUDING failures while reading the body, which undici
+ *      streams lazily after the headers arrive), so the auto data-source
  *      wrapper can tell a real outage (fall back) from a programming error.
+ *      An HTTP failure is only tagged `recoverable` when the status itself is
+ *      transient (408, 429, 5xx); a permanent 4xx (401, 404, ...) is not,
+ *      since retrying it can't succeed and just repeats a broken request.
  *   4. Retry — opt-in (`retries`) for idempotent GETs, so a single transient
  *      timeout doesn't kill a long replay. Never used for order POSTs.
  */
@@ -29,6 +32,15 @@ function recoverable(message) {
   const err = new Error(message);
   err.recoverable = true;
   return err;
+}
+
+// 408 (request timeout) and 429 (rate limited) are transient like a 5xx.
+// Every other 4xx is a permanent client error (bad auth, bad params, not
+// found) that a retry cannot fix — tagging it recoverable just re-sends the
+// same broken request, which is actively harmful against a rate limited
+// exchange endpoint.
+function isRecoverableStatus(status) {
+  return status === 408 || status === 429 || status >= 500;
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -57,7 +69,9 @@ async function attemptFetch(url, { method = "GET", headers, body, timeoutMs = DE
 
   if (!res.ok) {
     const suffix = json?.msg ? `: ${json.msg}` : "";
-    throw recoverable(`HTTP ${res.status} from ${hostOf(url)}${suffix}`);
+    const message = `HTTP ${res.status} from ${hostOf(url)}${suffix}`;
+    if (isRecoverableStatus(res.status)) throw recoverable(message);
+    throw new Error(message);
   }
 
   return json;
