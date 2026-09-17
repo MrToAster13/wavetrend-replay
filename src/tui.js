@@ -21,7 +21,7 @@ const C = {
 };
 
 const f = (n, d = 2) => (n == null ? "N/A" : Number(n).toFixed(d));
-// profitFactor is undefined for a flat run (no gross loss to divide by), so it
+// profitFactor is null for a flat run (no gross loss to divide by), so it
 // renders "n/a" rather than the "N/A" used elsewhere — callers screenshot this
 // value, so it also guards Infinity/NaN even though portfolio.js never emits them today.
 export const formatProfitFactor = (pf) =>
