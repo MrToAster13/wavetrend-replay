@@ -21,6 +21,11 @@ const C = {
 };
 
 const f = (n, d = 2) => (n == null ? "N/A" : Number(n).toFixed(d));
+// profitFactor is undefined for a flat run (no gross loss to divide by), so it
+// renders "n/a" rather than the "N/A" used elsewhere — callers screenshot this
+// value, so it also guards Infinity/NaN even though portfolio.js never emits them today.
+export const formatProfitFactor = (pf) =>
+  pf == null || !Number.isFinite(pf) ? "n/a" : Number(pf).toFixed(2);
 
 export function render(engine, config) {
   const candles = engine.candles();
@@ -83,7 +88,8 @@ export function render(engine, config) {
   );
   out.push(
     ` trades ${st.trades}  win ${f(st.winRatePct, 0)}%  ` +
-      `maxDD ${f(st.maxDrawdownPct, 1)}%  avgW ${C.green("+" + f(st.avgWinPct))}%  avgL ${C.red(f(st.avgLossPct))}%`,
+      `maxDD ${f(st.maxDrawdownPct, 1)}%  avgW ${C.green("+" + f(st.avgWinPct))}%  avgL ${C.red(f(st.avgLossPct))}%  ` +
+      `pf ${formatProfitFactor(st.profitFactor)}`,
   );
 
   const recent = engine.actions().slice(-3);
@@ -255,6 +261,7 @@ export function runHeadless(engine, config, { label = "" } = {}) {
   console.log(`  return        : ${st.returnPct >= 0 ? "+" : ""}${f(st.returnPct)}%   (equity ${f(st.equity)})`);
   console.log(`  max drawdown  : ${f(st.maxDrawdownPct, 1)}%`);
   console.log(`  avg win/loss  : +${f(st.avgWinPct)}% / ${f(st.avgLossPct)}%`);
+  console.log(`  profit factor : ${formatProfitFactor(st.profitFactor)}`);
   console.log("──────────────────────────────────────────────────────");
   return st;
 }
