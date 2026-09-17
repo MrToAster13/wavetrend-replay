@@ -297,7 +297,7 @@ test("a non-JSON body is still recoverable", async () => {
 
 // ELI-260: a body that is not JSON must not bypass the status classification.
 // An HTML error page from a proxy in front of the exchange is the realistic
-// trigger — the status is the real cause, the parse failure is a symptom.
+// trigger. The status is the real cause, the parse failure is a symptom.
 
 function textResponse(status, body) {
   return {
