@@ -2,3 +2,8 @@ node_modules/
 .env
 .env.*
 *.log
+
+# Backtest reports and run state stay on local disk, never in this public repo (ELI-778)
+backtest/**/*.html
+backtest/**/reports/
+backtest/**/state/
