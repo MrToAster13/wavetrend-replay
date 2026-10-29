@@ -17,7 +17,7 @@ The scripts read local settings from environment variables. Keep the values in a
 | `MC_STATE_DIR` | `mc_basic_1m/store.mjs` | Absolute path of the folder for the trade log, guard, recorder and snapshot files. |
 | `TRADINGVIEW_MCP_DIR` | `mc_b_dot/collect.mjs` | Path of a tradingview-mcp checkout. The collector loads its chart and replay helpers from there. |
 
-A missing or invalid setting stops the command with `E_CONFIG` before anything touches the chart or the disk.
+A missing or invalid setting stops the command with `E_CONFIG` before it reads or draws on the chart or writes to disk. A tab 2 command may first ask the CDP port for its list of open pages, which is read only.
 
 ## The CDP client
 
@@ -31,13 +31,13 @@ npm install --no-save chrome-remote-interface@^0.33.2
 
 ## Reports and notes stay off GitHub
 
-Backtest reports, findings pages, handoffs and strategy notes are not committed here. `.gitignore` ignores `backtest/**/*.html`, `backtest/**/reports/` and `backtest/**/state/`, and `private_data.test.mjs` fails if a report, a Windows home path or a real chart layout id lands under this folder.
+Backtest reports, findings pages, handoffs and strategy notes are not committed here. `.gitignore` ignores `backtest/**/*.html`, `backtest/**/reports/` and `backtest/**/state/`, and `private_data.test.mjs` fails if a report, trade log or data file lands under this folder, or if any file git would commit holds a home path or a real chart layout id. The rules live in `private_scan.mjs`.
 
 ## Running
 
 ```
 npm test
 MC_TAB1_LAYOUT_ID=... MC_STATE_DIR=... node backtest/mc_basic_1m/cli.mjs <draw|snapshot|recorder|resolve|clear|broker-reset> [flags]
-node backtest/mc_basic_1m/report.mjs <snapshot.json>
+MC_STATE_DIR=... node backtest/mc_basic_1m/report.mjs <snapshot.json>
 node backtest/mc_b_dot/grid.mjs <dataDir> <outJson>
 ```
