@@ -60,6 +60,8 @@ test('loadTradingViewCore imports chart, replay and connection from TRADINGVIEW_
   const dir = mkdtempSync(join(tmpdir(), 'eli778-tvmcp-'));
   try {
     mkdirSync(join(dir, 'src', 'core'), { recursive: true });
+    // tradingview-mcp's package.json sets "type": "module"; Node 18 needs it to load the .js files as ESM.
+    writeFileSync(join(dir, 'package.json'), '{ "type": "module" }\n');
     writeFileSync(join(dir, 'src', 'core', 'chart.js'), "export const setSymbol = () => 'sym'; export const setTimeframe = () => 'tf';\n");
     writeFileSync(join(dir, 'src', 'core', 'replay.js'), "export const start = () => 'start'; export const stop = () => 'stop';\n");
     writeFileSync(join(dir, 'src', 'connection.js'), "export const disconnect = () => 'bye';\n");
