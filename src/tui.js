@@ -9,6 +9,7 @@
 import readline from "readline";
 import { drawCandles, sparkline, dotRow } from "./chart.js";
 import { fetchBars } from "./feed.js";
+import { createLivePoller } from "./live.js";
 
 const CLEAR = "\x1b[2J\x1b[3J\x1b[H";
 const C = {
@@ -189,23 +190,16 @@ export async function runLive(engine, config, webhook, { pollMs = 5000 } = {}) {
   const draw = (extra = "") => paint(engine, config, extra);
 
   // In-flight guard: setInterval ignores the promise an async callback returns,
-  // so a fetch slower than pollMs would let polls overlap — double-consuming the
-  // webhook signal (take() clears it) and repainting on top of each other.
+  // so a fetch slower than pollMs would let polls overlap and repaint on top of
+  // each other.
+  const poller = createLivePoller({ engine, config, webhook, fetchBars });
   let polling = false;
   const poll = async () => {
     if (!playing || polling) return;
     polling = true;
     try {
-      const fresh = await fetchBars(config, { bars: 3 });
-      const sig = webhook.take();
-      const override = sig && (!sig.symbol || sig.symbol === config.symbol) ? sig.signal : null;
-      engine.appendCandles(fresh, override);
-      draw(
-        "\n " +
-          (webhook.count() > 0
-            ? C.cyan(`live Cipher alerts received: ${webhook.count()}`)
-            : C.dim(`no Cipher alerts yet — using reconstruction (webhook on :${webhook.port}/alert)`)),
-      );
+      await poller.poll();
+      draw("\n " + liveStatusLine(poller.status(), webhook.port));
     } catch (err) {
       draw("\n " + C.red("poll error: " + err.message));
     } finally {
@@ -264,4 +258,16 @@ export function runHeadless(engine, config, { label = "" } = {}) {
   console.log(`  profit factor : ${formatProfitFactor(st.profitFactor)}`);
   console.log("──────────────────────────────────────────────────────");
   return st;
+}
+
+// One status line under the live chart. Received counts every alert the
+// webhook accepted. Applied counts the ones a closed bar actually used.
+export function liveStatusLine({ received, applied, pending, dropped }, port) {
+  if (received === 0) {
+    return C.dim(`no Cipher alerts yet — using reconstruction (webhook on :${port}/alert)`);
+  }
+  let line = C.cyan(`live Cipher alerts received: ${received}  applied: ${applied}`);
+  if (pending) line += C.dim(`  pending: ${pending} (waits for the next closed bar)`);
+  if (dropped) line += "\n " + C.red(`ignored an alert for ${dropped}`);
+  return line;
 }
