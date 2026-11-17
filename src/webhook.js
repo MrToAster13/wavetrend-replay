@@ -128,11 +128,12 @@ export function webhookOptions(opts = {}, env = {}) {
 }
 
 // The startup text. It names the bound address and never the secret.
-export function startupMessage({ address, port }, { secured }) {
+export function startupMessage({ address, port }, { secured, notes = [] }) {
   const host = address.includes(":") ? `[${address}]` : address;
   let msg = `Webhook listening on http://${host}:${port}/alert — point a TradingView Market Cipher alert here.`;
   if (!secured) {
     msg += "\nWarning: WEBHOOK_SECRET is not set, so any caller that reaches this port can post signals.";
   }
+  for (const note of notes) msg += `\n${note}`;
   return msg;
 }
