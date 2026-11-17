@@ -6,19 +6,51 @@
  * Cipher B indicator, set "Webhook URL" to http://YOUR_HOST:PORT/alert, and put
  * a JSON message like:
  *
- *   {"signal":"green","symbol":"BTCUSDT"}      // green dot / buy
- *   {"signal":"red","symbol":"BTCUSDT"}        // red dot / sell
+ *   {"signal":"green","symbol":"BTCUSDT","secret":"YOUR_WEBHOOK_SECRET"}   // green dot / buy
+ *   {"signal":"red","symbol":"BTCUSDT","secret":"YOUR_WEBHOOK_SECRET"}     // red dot / sell
  *
- * TradingView only reaches a PUBLIC URL, so for a laptop you need a tunnel
- * (e.g. `ngrok http 8787`) and use the tunnel URL in the alert. On a VPS with an
- * open port, use the host directly.
+ * Start live mode with the same value in the WEBHOOK_SECRET environment
+ * variable. A POST without the matching secret gets 401. TradingView cannot
+ * send custom headers, so the secret rides in the message body. Without
+ * WEBHOOK_SECRET any caller that reaches the port can post signals, and the
+ * CLI says so at startup.
+ *
+ * The webhook listens on 127.0.0.1 unless --host or WEBHOOK_HOST names another
+ * address. TradingView only reaches a PUBLIC URL, so for a laptop you need a
+ * tunnel (e.g. `ngrok http 8787`), which forwards to localhost. On a VPS with an
+ * open port, pass --host 0.0.0.0 and set a secret.
  *
  * Uses Node's built-in http — no dependency. Stores only the latest signal; the
- * live loop reads it each bar and clears it after acting.
+ * live poll step (src/live.js) takes it each poll.
  */
 import { createServer } from "http";
+import { createHash, timingSafeEqual } from "crypto";
 
-export function createWebhook({ port = 8787 } = {}) {
+const MAX_BODY = 10_000;
+
+// Constant-time compare. Hashing first gives both sides the same length.
+function secretMatches(given, secret) {
+  if (typeof given !== "string") return false;
+  const digest = (s) => createHash("sha256").update(s).digest();
+  return timingSafeEqual(digest(given), digest(secret));
+}
+
+// Parse a body into a signal, or say why it is refused.
+function readSignal(body, secret) {
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    // A bare-word body ("green"/"red") has no room for a secret.
+    if (secret) return { status: 401 };
+    return { signal: body.trim().toLowerCase(), symbol: undefined };
+  }
+  const obj = parsed !== null && typeof parsed === "object" ? parsed : {};
+  if (secret && !secretMatches(obj.secret, secret)) return { status: 401 };
+  return { signal: String(obj.signal || "").toLowerCase(), symbol: obj.symbol };
+}
+
+export function createWebhook({ port = 8787, host = "127.0.0.1", secret = null } = {}) {
   let latest = null; // { signal: "green"|"red", symbol, receivedAt }
   let received = 0;
 
@@ -27,24 +59,24 @@ export function createWebhook({ port = 8787 } = {}) {
       res.writeHead(404).end("not found");
       return;
     }
+    req.setEncoding("utf8"); // decode across chunks, so a split character survives
     let body = "";
+    let tooLarge = false;
     req.on("data", (chunk) => {
+      if (tooLarge) return;
       body += chunk;
-      if (body.length > 10_000) req.destroy(); // guard against oversized posts
+      if (body.length > MAX_BODY) {
+        tooLarge = true;
+        res.writeHead(413, { Connection: "close" }).end("body too large", () => req.destroy());
+      }
     });
     req.on("end", () => {
-      let signal = null;
-      let symbol = null;
-      try {
-        const parsed = JSON.parse(body);
-        signal = String(parsed.signal || "").toLowerCase();
-        symbol = parsed.symbol;
-      } catch {
-        // Also accept a bare word body ("green"/"red") for simple alerts.
-        signal = body.trim().toLowerCase();
-      }
-      if (signal === "green" || signal === "red") {
-        latest = { signal, symbol, receivedAt: new Date().toISOString() };
+      if (tooLarge) return;
+      const result = readSignal(body, secret);
+      if (result.status === 401) {
+        res.writeHead(401).end("unauthorized");
+      } else if (result.signal === "green" || result.signal === "red") {
+        latest = { signal: result.signal, symbol: result.symbol, receivedAt: new Date().toISOString() };
         received++;
         res.writeHead(200).end("ok");
       } else {
@@ -54,11 +86,22 @@ export function createWebhook({ port = 8787 } = {}) {
   });
 
   return {
+    // Resolves with the address actually bound: { address, port }.
     listen() {
-      return new Promise((resolve) => server.listen(port, resolve));
+      return new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(port, host, () => {
+          server.off("error", reject);
+          const { address, port: boundPort } = server.address();
+          resolve({ address, port: boundPort });
+        });
+      });
     },
     close() {
-      return new Promise((resolve) => server.close(resolve));
+      return new Promise((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections?.();
+      });
     },
     // Read and clear the latest signal (so each alert acts once).
     take() {
@@ -68,6 +111,28 @@ export function createWebhook({ port = 8787 } = {}) {
     },
     peek: () => latest,
     count: () => received,
-    port,
+    get port() {
+      return server.address()?.port ?? port;
+    },
   };
+}
+
+// Host and secret for live mode. --host beats WEBHOOK_HOST, and the default is
+// loopback. The secret comes only from the environment, never a flag, so it
+// stays out of shell history and process lists. Empty counts as unset.
+export function webhookOptions(opts = {}, env = {}) {
+  return {
+    host: opts.host || env.WEBHOOK_HOST || "127.0.0.1",
+    secret: env.WEBHOOK_SECRET || null,
+  };
+}
+
+// The startup text. It names the bound address and never the secret.
+export function startupMessage({ address, port }, { secured }) {
+  const host = address.includes(":") ? `[${address}]` : address;
+  let msg = `Webhook listening on http://${host}:${port}/alert — point a TradingView Market Cipher alert here.`;
+  if (!secured) {
+    msg += "\nWarning: WEBHOOK_SECRET is not set, so any caller that reaches this port can post signals.";
+  }
+  return msg;
 }

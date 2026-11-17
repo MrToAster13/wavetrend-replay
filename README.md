@@ -26,6 +26,24 @@ More flags: `--symbol BTCUSDT --tf 4H --speed 4 --bars 800 --strategy cipher-cro
 
 The `--symbol` / `--tf` defaults also read from the `SYMBOL`, `TIMEFRAME`, and `BITGET_BASE_URL` environment variables — set them in your shell, or run `node --env-file=.env replay.js` (Node 20.6+) to load them from a file.
 
+## Live alerts
+
+`--live` starts a webhook on `127.0.0.1:8787` that takes real Market Cipher alerts from TradingView. TradingView only reaches a public URL, so on a laptop point a tunnel such as `ngrok http 8787` at it. On a VPS, pass `--host 0.0.0.0` (or set `WEBHOOK_HOST`).
+
+Set a secret so only your alerts count. Start live mode with it in the environment:
+
+```bash
+WEBHOOK_SECRET=pick-a-long-random-value node replay.js --live
+```
+
+Put the same value in the TradingView alert message, set the webhook URL to `https://YOUR_TUNNEL/alert`, and use:
+
+```json
+{"signal":"green","symbol":"BTCUSDT","secret":"pick-a-long-random-value"}
+```
+
+Use `"red"` for a red dot. A POST without the matching `secret` gets 401 and changes nothing. Without `WEBHOOK_SECRET`, any caller that reaches the port can post signals, and the startup line warns about it. Keep the secret out of the repo.
+
 ## How it's built
 
 - **`src/engine.js`** — a high-water-mark bar processor: step back to review the chart without double-counting trades, warm-up nulls handled, state reset cleanly on a mode switch.
