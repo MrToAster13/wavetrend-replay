@@ -4,9 +4,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { committableFiles, findChartIds, findHomePaths, isPrivateBacktestPath } from './private_scan.mjs';
 
 const ID = 'REAL' + 'ID12';
@@ -67,14 +68,50 @@ test('report rule leaves the moved code and docs alone', () => {
 
 test('committableFiles lists tracked and untracked files across the repo and skips ignored ones', () => {
   const root = mkdtempSync(join(tmpdir(), 'private_scan_test-'));
-  assert.equal(spawnSync('git', ['init', '-q'], { cwd: root }).status, 0);
-  mkdirSync(join(root, 'backtest', 'state'), { recursive: true });
-  writeFileSync(join(root, '.gitignore'), 'backtest/**/state/\n');
-  writeFileSync(join(root, 'backtest', 'state', 'snapshot.json'), '{}');
-  writeFileSync(join(root, 'backtest', 'kept.mjs'), '');
-  writeFileSync(join(root, 'docs_leak.md'), '');
-  const files = committableFiles(root);
-  assert.ok(files.includes('backtest/kept.mjs'), files.join(','));
-  assert.ok(files.includes('docs_leak.md'), files.join(','));
-  assert.ok(!files.includes('backtest/state/snapshot.json'), files.join(','));
+  try {
+    assert.equal(spawnSync('git', ['init', '-q'], { cwd: root }).status, 0);
+    mkdirSync(join(root, 'backtest', 'state'), { recursive: true });
+    writeFileSync(join(root, '.gitignore'), 'backtest/**/state/\n');
+    writeFileSync(join(root, 'backtest', 'state', 'snapshot.json'), '{}');
+    writeFileSync(join(root, 'backtest', 'kept.mjs'), '');
+    writeFileSync(join(root, 'docs_leak.md'), '');
+    const files = committableFiles(root);
+    assert.ok(files.includes('backtest/kept.mjs'), files.join(','));
+    assert.ok(files.includes('docs_leak.md'), files.join(','));
+    assert.ok(!files.includes('backtest/state/snapshot.json'), files.join(','));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ELI-833: the committableFiles test made a temp git repo on every run and never removed it.
+// leftoversAfterCommittableFilesTest runs that one test in a child node that inherits parentEnv,
+// with its temp folder pointed at a fresh folder, and returns the private_scan_test folders left
+// there. PRIVATE_SCAN_CHILD stops the child from running the tests below again.
+function leftoversAfterCommittableFilesTest(parentEnv) {
+  const tmp = mkdtempSync(join(tmpdir(), 'private_scan_cleanup-'));
+  try {
+    const env = { ...parentEnv, TMPDIR: tmp, TMP: tmp, TEMP: tmp, PRIVATE_SCAN_CHILD: '1' };
+    delete env.NODE_TEST_CONTEXT;
+    delete env.NODE_OPTIONS;
+    const args = ['--test-reporter=tap', '--test-name-pattern=^committableFiles lists', fileURLToPath(import.meta.url)];
+    const r = spawnSync(process.execPath, args, { env, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /^# pass 1$/m, r.stdout);
+    return readdirSync(tmp).filter((n) => n.startsWith('private_scan_test-'));
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+const notInChild = { skip: process.env.PRIVATE_SCAN_CHILD === '1' };
+
+test('a run of the committableFiles test leaves no private_scan_test folder behind', notInChild, () => {
+  assert.deepEqual(leftoversAfterCommittableFilesTest(process.env), []);
+});
+
+// ELI-833 review finding 1: a test reporter set in NODE_OPTIONS reached the child, which then had
+// two reporters and exited with ERR_INVALID_ARG_VALUE before running the committableFiles test.
+test('the leftover check still runs when NODE_OPTIONS sets a test reporter', notInChild, () => {
+  assert.deepEqual(leftoversAfterCommittableFilesTest({ ...process.env, NODE_OPTIONS: '--test-reporter=spec' }), []);
 });
