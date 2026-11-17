@@ -1,6 +1,6 @@
 # wavetrend-replay
 
-A terminal tool that replays candle history bar by bar and paper-trades a strategy against it — like TradingView's Bar Replay, but scriptable, with a reconstructed Market Cipher B / WaveTrend oscillator driving the signals. Zero dependencies, Node 18+.
+A terminal tool that replays candle history bar by bar and paper-trades a strategy against it — like TradingView's Bar Replay, but scriptable, with a reconstructed Market Cipher B / WaveTrend oscillator driving the signals. Zero dependencies, Node 22+.
 
 ## What it does
 
@@ -24,7 +24,7 @@ npm test                          # node --test
 
 More flags: `--symbol BTCUSDT --tf 4H --speed 4 --bars 800 --strategy cipher-cross --manual`. In the TUI, `[m]` toggles manual/auto and `[r]` reloads a fresh random window. Candles come from BitGet's public candle endpoint; no key needed.
 
-The `--symbol` / `--tf` defaults also read from the `SYMBOL`, `TIMEFRAME`, and `BITGET_BASE_URL` environment variables — set them in your shell, or run `node --env-file=.env replay.js` (Node 20.6+) to load them from a file.
+The `--symbol` / `--tf` defaults also read from the `SYMBOL`, `TIMEFRAME`, and `BITGET_BASE_URL` environment variables — set them in your shell, or run `node --env-file=.env replay.js` to load them from a file.
 
 ## Live alerts
 
@@ -51,7 +51,7 @@ Use `"red"` for a red dot. A POST without the matching `secret` gets 401 and cha
 - **`src/http.js`** — a bounded-timeout fetch wrapper that retries only idempotent GETs and tells a recoverable outage apart from a real bug.
 - **`src/portfolio.js`** — paper positions, equity, drawdown. **`src/tui.js`** / **`src/chart.js`** — the terminal chart, the controls, and the live-poll timer (re-entrancy guarded).
 - **`src/live.js`** — the live poll step. It acts only on closed bars, 15 seconds after the close, so each bar is judged once on its final prices, and it holds a webhook signal until the next closed bar uses it. The TUI shows alerts received apart from alerts applied.
-- Tests (`node --test`) cover the indicator math, the cipher warm-up and crosses, the portfolio accounting, and the live poll step. No network, synthetic candles.
+- Tests (`node --test`) run `test/*.test.js` and `backtest/**/*.test.mjs`. The first set covers the indicator math, the cipher warm-up and crosses, the portfolio accounting, the webhook and the live poll step. The second covers the Market Cipher backtester in `backtest/`. No network, synthetic candles.
 
 The combo tester, which tests small combinations of indicator signals on the live chart's history, is not in this repo. It lives in `scripts/combo` in [MrToAster13/tradingview-mcp](https://github.com/MrToAster13/tradingview-mcp/tree/main/scripts/combo), and that repo's `docs/combo-tester.md` describes it.
 
