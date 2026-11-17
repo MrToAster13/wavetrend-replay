@@ -10,6 +10,8 @@
  *
  * In the TUI, [m] toggles manual/auto any time. Flags:
  *   --symbol BTCUSDT  --tf 4H  --speed 4  --bars 800  --strategy cipher-cross  --manual
+ * Live only: --port 8787  --host 127.0.0.1 (or WEBHOOK_HOST), and WEBHOOK_SECRET
+ * in the environment to require a matching "secret" field in each alert.
  *
  * Replay uses a WaveTrend/Market Cipher B RECONSTRUCTION (approximation — see
  * src/cipher.js). Live mode uses that too until real Market Cipher TradingView
@@ -17,7 +19,7 @@
  */
 import { fetchBars, TF_MS, assertTimeframe } from "./src/feed.js";
 import { createEngine } from "./src/engine.js";
-import { createWebhook } from "./src/webhook.js";
+import { createWebhook, webhookOptions, startupMessage } from "./src/webhook.js";
 import { STRATEGIES } from "./src/strategies.js";
 import { runReplay, runLive, runHeadless } from "./src/tui.js";
 import { closedBars, SETTLE_MS } from "./src/live.js";
@@ -144,14 +146,16 @@ async function main() {
   // ── live paper mode ──
   if (args.flags.has("live")) {
     const port = num(args.opts.port, { def: 8787, min: 1 });
-    const webhook = createWebhook({ port });
-    await webhook.listen();
+    const { host, secret } = webhookOptions(args.opts, process.env);
+    const webhook = createWebhook({ port, host, secret });
+    const bound = await webhook.listen();
     try {
       const engine = await loadEngine(config, null, 300, "live");
       applyInitialStrategy(engine, args.opts.strategy);
       if (args.flags.has("manual")) engine.setManual(true);
-      console.log(`Webhook listening on http://localhost:${port}/alert — point a TradingView Market Cipher alert here.`);
-      await runLive(engine, config, webhook, { pollMs: num(args.opts.poll, { def: 5000, min: 250 }) });
+      const notice = startupMessage(bound, { secured: Boolean(secret) });
+      console.log(notice);
+      await runLive(engine, config, webhook, { pollMs: num(args.opts.poll, { def: 5000, min: 250 }), notice });
     } finally {
       await webhook.close(); // always close, even on error — an open server would hang the process
     }

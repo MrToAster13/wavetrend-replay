@@ -181,13 +181,14 @@ export function runReplay(engine, config, { speed = 2 } = {}) {
 }
 
 // ── Live paper mode ─────────────────────────────────────────────────────────
-export async function runLive(engine, config, webhook, { pollMs = 5000 } = {}) {
+export async function runLive(engine, config, webhook, { pollMs = 5000, notice = "" } = {}) {
   let playing = true;
 
   readline.emitKeypressEvents(process.stdin);
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
 
-  const draw = (extra = "") => paint(engine, config, extra);
+  const footer = webhookNotice(notice);
+  const draw = (extra = "") => paint(engine, config, extra + footer);
 
   // In-flight guard: setInterval ignores the promise an async callback returns,
   // so a fetch slower than pollMs would let polls overlap and repaint on top of
@@ -270,4 +271,15 @@ export function liveStatusLine({ received, applied, pending, dropped }, port) {
   if (pending) line += C.dim(`  pending: ${pending} (waits for the next closed bar)`);
   if (dropped) line += "\n " + C.red(`ignored an alert for ${dropped}`);
   return line;
+}
+
+// The webhook startup text, kept under every live frame. Printed once before
+// the TUI starts, it would be cleared by the first paint. The no-secret
+// warning shows in red.
+export function webhookNotice(message) {
+  if (!message) return "";
+  return message
+    .split("\n")
+    .map((line) => "\n " + (line.startsWith("Warning:") ? C.red(line) : C.dim(line)))
+    .join("");
 }
