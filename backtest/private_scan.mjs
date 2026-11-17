@@ -46,9 +46,22 @@ export function isPrivateBacktestPath(p) {
     || (/\.md$/i.test(base) && /report|result|findings|handoff|trades/i.test(base));
 }
 
+// The repo-location variables from `git rev-parse --local-env-vars`. A git hook exports some of
+// them, and they override cwd, so git run for another root must not inherit them.
+const REPO_ENV_VARS = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_IMPLICIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR',
+  'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_PREFIX', 'GIT_GRAFT_FILE',
+  'GIT_SHALLOW_FILE', 'GIT_NO_REPLACE_OBJECTS', 'GIT_REPLACE_REF_BASE', 'GIT_CONFIG'];
+
+/** env with the repo-location variables removed, so git finds the repo from cwd. */
+export function envForRepoAt(env = process.env) {
+  const out = { ...env };
+  for (const k of REPO_ENV_VARS) delete out[k];
+  return out;
+}
+
 /** Every file git would commit from root: tracked plus untracked, minus ignored. */
 export function committableFiles(root) {
-  const r = spawnSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: root, encoding: 'utf8' });
+  const r = spawnSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: root, env: envForRepoAt(), encoding: 'utf8' });
   if (r.status !== 0) throw new Error(`git ls-files failed: ${r.stderr}`);
   return r.stdout.split('\0').filter(Boolean);
 }

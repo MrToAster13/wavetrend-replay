@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { committableFiles, findChartIds, findHomePaths, isPrivateBacktestPath } from './private_scan.mjs';
+import { committableFiles, envForRepoAt, findChartIds, findHomePaths, isPrivateBacktestPath } from './private_scan.mjs';
 
 const ID = 'REAL' + 'ID12';
 
@@ -69,7 +69,7 @@ test('report rule leaves the moved code and docs alone', () => {
 test('committableFiles lists tracked and untracked files across the repo and skips ignored ones', () => {
   const root = mkdtempSync(join(tmpdir(), 'private_scan_test-'));
   try {
-    assert.equal(spawnSync('git', ['init', '-q'], { cwd: root }).status, 0);
+    assert.equal(spawnSync('git', ['init', '-q'], { cwd: root, env: envForRepoAt() }).status, 0);
     mkdirSync(join(root, 'backtest', 'state'), { recursive: true });
     writeFileSync(join(root, '.gitignore'), 'backtest/**/state/\n');
     writeFileSync(join(root, 'backtest', 'state', 'snapshot.json'), '{}');
@@ -114,4 +114,44 @@ test('a run of the committableFiles test leaves no private_scan_test folder behi
 // two reporters and exited with ERR_INVALID_ARG_VALUE before running the committableFiles test.
 test('the leftover check still runs when NODE_OPTIONS sets a test reporter', notInChild, () => {
   assert.deepEqual(leftoversAfterCommittableFilesTest({ ...process.env, NODE_OPTIONS: '--test-reporter=spec' }), []);
+});
+
+// A pre-commit hook in a git worktree exports GIT_DIR and GIT_INDEX_FILE for that worktree, and
+// the hook runs this suite. The committableFiles test then ran `git init` against the hook's
+// repo instead of its temp folder, which rewrote the shared config to core.bare = true, and
+// listed the hook's repo instead of the temp one.
+test('the committableFiles test leaves the repo named by an inherited GIT_DIR alone', notInChild, () => {
+  const outer = mkdtempSync(join(tmpdir(), 'private_scan_outer-'));
+  try {
+    assert.equal(spawnSync('git', ['init', '-q', outer], { env: envForRepoAt() }).status, 0);
+    const gitDir = join(outer, '.git');
+    const env = { ...process.env, GIT_DIR: gitDir, GIT_INDEX_FILE: join(gitDir, 'index') };
+    assert.deepEqual(leftoversAfterCommittableFilesTest(env), []);
+    const bare = spawnSync('git', ['-C', outer, 'config', 'core.bare'], { env: envForRepoAt(), encoding: 'utf8' });
+    assert.equal(bare.stdout.trim(), 'false');
+  } finally {
+    rmSync(outer, { recursive: true, force: true });
+  }
+});
+
+// ELI-1174 review finding 1: the test above ran its own `git init` and `git config` with the
+// inherited env, so under a worktree hook it flipped the hook's repo to bare itself. This runs
+// the whole file the way a worktree pre-commit hook does, with GIT_DIR and GIT_INDEX_FILE set.
+const notInHookChild = { skip: process.env.PRIVATE_SCAN_HOOK_CHILD === '1' };
+
+test('this file run under a worktree hook env leaves the hook repo non-bare', notInHookChild, () => {
+  const hookRepo = mkdtempSync(join(tmpdir(), 'private_scan_hook-'));
+  try {
+    assert.equal(spawnSync('git', ['init', '-q', hookRepo], { env: envForRepoAt() }).status, 0);
+    const gitDir = join(hookRepo, '.git');
+    const env = { ...process.env, GIT_DIR: gitDir, GIT_INDEX_FILE: join(gitDir, 'index'), PRIVATE_SCAN_HOOK_CHILD: '1' };
+    delete env.NODE_TEST_CONTEXT;
+    delete env.NODE_OPTIONS;
+    const r = spawnSync(process.execPath, ['--test-reporter=tap', fileURLToPath(import.meta.url)], { env, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    const bare = spawnSync('git', ['-C', hookRepo, 'config', 'core.bare'], { env: envForRepoAt(), encoding: 'utf8' });
+    assert.equal(bare.stdout.trim(), 'false');
+  } finally {
+    rmSync(hookRepo, { recursive: true, force: true });
+  }
 });
