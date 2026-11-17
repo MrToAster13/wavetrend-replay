@@ -22,9 +22,32 @@ node replay.js --headless         # play to the end, print stats
 npm test                          # node --test
 ```
 
-More flags: `--symbol BTCUSDT --tf 4H --speed 4 --bars 800 --strategy cipher-cross --manual`. In the TUI, `[m]` toggles manual/auto and `[r]` reloads a fresh random window. Candles come from BitGet's public candle endpoint; no key needed.
+In the TUI, `[m]` toggles manual/auto and `[r]` reloads a fresh random window. Candles come from BitGet's public candle endpoint; no key needed.
 
 The `--symbol` / `--tf` defaults also read from the `SYMBOL`, `TIMEFRAME`, and `BITGET_BASE_URL` environment variables — set them in your shell, or run `node --env-file=.env replay.js` to load them from a file.
+
+## Flags
+
+Any option not listed here stops the run with exit code 1, and so do a value option with no value and an option given twice. A number below its minimum runs at the minimum and prints one line that says so.
+
+| Flag | Modes | What it does |
+| --- | --- | --- |
+| `--symbol BTCUSDT` | both | pair to load, default BTCUSDT or `SYMBOL` |
+| `--tf 4H` | both | timeframe, default 4H or `TIMEFRAME` |
+| `--timeframe 4H` | both | same as `--tf`, not with it |
+| `--strategy cipher-cross` | both | starting strategy, default the first one |
+| `--bars 800` | both | candles to load, default 800 in replay and 300 live, minimum 120 |
+| `--manual` | both | start in manual mode, strategy off, not with `--headless` |
+| `--from 2025-11-02` | replay | replay forward from a date |
+| `--random` | replay | replay from a random past window, not with `--from` |
+| `--speed 4` | replay | bars per second, default 3, not with `--headless` |
+| `--headless` | replay | play to the end and print stats |
+| `--live` | live | live paper mode with the alert webhook |
+| `--port 8787` | live | webhook port |
+| `--host 127.0.0.1` | live | webhook bind address, or `WEBHOOK_HOST` |
+| `--poll 5000` | live | milliseconds between candle polls, minimum 250 |
+
+Values go after a space or an `=`, as in `--tf 1H` or `--tf=1H`. Replay-only flags with `--live` exit with code 1, and so do live-only flags without it.
 
 ## Live alerts
 

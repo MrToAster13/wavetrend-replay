@@ -112,7 +112,7 @@ function paint(engine, config, extra = "") {
 }
 
 // ── Interactive historical replay ──────────────────────────────────────────
-export function runReplay(engine, config, { speed = 2 } = {}) {
+export function runReplay(engine, config, { speed = 2, notice = "" } = {}) {
   return new Promise((resolve) => {
     let playing = false;
     let barsPerSec = speed;
@@ -133,8 +133,9 @@ export function runReplay(engine, config, { speed = 2 } = {}) {
       }, Math.max(16, 1000 / barsPerSec));
     };
 
+    const footer = webhookNotice(notice);
     const draw = (extra = "") =>
-      paint(engine, config, `\n ${playing ? C.green("▶ playing") : C.dim("❚❚ paused")}  ${barsPerSec}x` + extra);
+      paint(engine, config, `\n ${playing ? C.green("▶ playing") : C.dim("❚❚ paused")}  ${barsPerSec}x` + extra + footer);
 
     readline.emitKeypressEvents(process.stdin);
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
@@ -273,9 +274,9 @@ export function liveStatusLine({ received, applied, pending, dropped }, port) {
   return line;
 }
 
-// The webhook startup text, kept under every live frame. Printed once before
-// the TUI starts, it would be cleared by the first paint. The no-secret
-// warning shows in red.
+// Startup text kept under every frame: the webhook address in live mode and
+// any CLI notes. Printed once before the TUI starts, it would be cleared by
+// the first paint. The no-secret warning shows in red.
 export function webhookNotice(message) {
   if (!message) return "";
   return message

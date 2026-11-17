@@ -8,74 +8,21 @@
  *   node replay.js --manual                trade by hand (b=buy, x=sell), strategy off
  *   node replay.js --headless              play to the end, print stats (no keys)
  *
- * In the TUI, [m] toggles manual/auto any time. Flags:
- *   --symbol BTCUSDT  --tf 4H  --speed 4  --bars 800  --strategy cipher-cross  --manual
- * Live only: --port 8787  --host 127.0.0.1 (or WEBHOOK_HOST), and WEBHOOK_SECRET
- * in the environment to require a matching "secret" field in each alert.
+ * In the TUI, [m] toggles manual/auto any time. src/cli.js lists every flag
+ * and the README's Flags table mirrors it. Set WEBHOOK_SECRET in the
+ * environment to require a matching "secret" field in each live alert.
  *
  * Replay uses a WaveTrend/Market Cipher B RECONSTRUCTION (approximation — see
  * src/cipher.js). Live mode uses that too until real Market Cipher TradingView
  * alerts arrive at the webhook (src/webhook.js). Paper only — no real orders.
  */
-import { fetchBars, TF_MS, assertTimeframe } from "./src/feed.js";
+import { fetchBars, TF_MS } from "./src/feed.js";
 import { createEngine } from "./src/engine.js";
-import { createWebhook, webhookOptions, startupMessage } from "./src/webhook.js";
+import { createWebhook, startupMessage } from "./src/webhook.js";
+import { parseArgs, buildRunConfig } from "./src/cli.js";
 import { STRATEGIES } from "./src/strategies.js";
 import { runReplay, runLive, runHeadless } from "./src/tui.js";
 import { closedBars, SETTLE_MS } from "./src/live.js";
-
-// Value-less booleans — never swallow the next token as their value, so
-// `--live 8787` can't silently disable live mode.
-const BOOLEAN_FLAGS = new Set(["live", "manual", "headless", "random"]);
-
-function parseArgs(argv) {
-  const args = { flags: new Set(), opts: {} };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (!a.startsWith("--")) continue;
-    const body = a.slice(2);
-    // Support --key=value alongside --key value.
-    const eq = body.indexOf("=");
-    if (eq !== -1) {
-      args.opts[body.slice(0, eq)] = body.slice(eq + 1);
-      continue;
-    }
-    const key = body;
-    if (BOOLEAN_FLAGS.has(key)) {
-      args.flags.add(key);
-      continue;
-    }
-    const next = argv[i + 1];
-    if (next && !next.startsWith("--")) {
-      args.opts[key] = next;
-      i++;
-    } else {
-      args.flags.add(key);
-    }
-  }
-  return args;
-}
-
-// Parse a numeric option with a default and floor. Rejects non-numeric input
-// loudly — Math.max(floor, NaN) is NaN, which would silently poison the run.
-function num(raw, { def, min = 1 }) {
-  if (raw == null) return def;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) throw new Error(`Expected a number for this option but got "${raw}".`);
-  return Math.max(min, Math.floor(n));
-}
-
-function buildConfig(opts) {
-  const timeframe = opts.tf || opts.timeframe || process.env.TIMEFRAME || "4H";
-  assertTimeframe(timeframe);
-  return {
-    symbol: opts.symbol || process.env.SYMBOL || "BTCUSDT",
-    timeframe,
-    // Candles come straight from BitGet's public API (no auth needed).
-    // Override the host with BITGET_BASE_URL if needed.
-    bitget: { baseUrl: process.env.BITGET_BASE_URL || "https://api.bitget.com" },
-  };
-}
 
 // Resolve the end-of-window timestamp so the chosen start date plays FORWARD.
 function resolveEndTime({ from, random }, config, bars, now) {
@@ -138,24 +85,22 @@ async function loadRandomEngine(config, bars, now) {
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
-  const config = buildConfig(args.opts);
-  const bars = num(args.opts.bars, { def: 800, min: 120 });
-  const speed = num(args.opts.speed, { def: 3, min: 1 });
+  const run = buildRunConfig(parseArgs(process.argv.slice(2)), process.env);
+  for (const note of run.notes) console.log(note);
+  const config = { symbol: run.symbol, timeframe: run.timeframe, bitget: run.bitget };
+  const { bars } = run;
 
   // ── live paper mode ──
-  if (args.flags.has("live")) {
-    const port = num(args.opts.port, { def: 8787, min: 1 });
-    const { host, secret } = webhookOptions(args.opts, process.env);
-    const webhook = createWebhook({ port, host, secret });
+  if (run.mode === "live") {
+    const webhook = createWebhook({ port: run.port, host: run.host, secret: run.secret });
     const bound = await webhook.listen();
     try {
-      const engine = await loadEngine(config, null, 300, "live");
-      applyInitialStrategy(engine, args.opts.strategy);
-      if (args.flags.has("manual")) engine.setManual(true);
-      const notice = startupMessage(bound, { secured: Boolean(secret) });
+      const engine = await loadEngine(config, null, bars, "live");
+      applyInitialStrategy(engine, run.strategy);
+      if (run.manual) engine.setManual(true);
+      const notice = startupMessage(bound, { secured: Boolean(run.secret), notes: run.notes });
       console.log(notice);
-      await runLive(engine, config, webhook, { pollMs: num(args.opts.poll, { def: 5000, min: 250 }), notice });
+      await runLive(engine, config, webhook, { pollMs: run.poll, notice });
     } finally {
       await webhook.close(); // always close, even on error — an open server would hang the process
     }
@@ -163,23 +108,23 @@ async function main() {
   }
 
   // ── replay mode ──
-  const interactive = process.stdin.isTTY && !args.flags.has("headless");
+  const interactive = process.stdin.isTTY && !run.headless;
 
   // 'r' in the TUI resolves { reload: true } → pick a fresh random window.
-  let useRandom = args.flags.has("random");
+  let useRandom = run.random;
   for (;;) {
     const now = Date.now(); // fresh each reload so windows track wall-clock time
     const engine = useRandom
       ? await loadRandomEngine(config, bars, now)
-      : await loadEngine(config, resolveEndTime({ from: args.opts.from }, config, bars, now), bars, "replay");
-    applyInitialStrategy(engine, args.opts.strategy);
-    if (args.flags.has("manual") && interactive) engine.setManual(true);
+      : await loadEngine(config, resolveEndTime({ from: run.from }, config, bars, now), bars, "replay");
+    applyInitialStrategy(engine, run.strategy);
+    if (run.manual && interactive) engine.setManual(true);
 
     if (!interactive) {
       runHeadless(engine, config, { label: useRandom ? "(random)" : "" });
       return;
     }
-    const result = await runReplay(engine, config, { speed });
+    const result = await runReplay(engine, config, { speed: run.speed, notice: run.notes.join("\n") });
     if (!result?.reload) break;
     useRandom = true;
   }
