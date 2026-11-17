@@ -15,7 +15,7 @@ The scripts read local settings from environment variables. Keep the values in a
 | --- | --- | --- |
 | `MC_TAB1_LAYOUT_ID` | `mc_basic_1m/cdp.mjs` | The layout id of the MES 1-minute chart, the part after `tradingview.com/chart/`. Letters and digits only. |
 | `MC_STATE_DIR` | `mc_basic_1m/store.mjs` | Absolute path of the folder for the trade log, guard, recorder and snapshot files. |
-| `TRADINGVIEW_MCP_DIR` | `mc_b_dot/collect.mjs` | Path of a tradingview-mcp checkout. The collector loads its chart and replay helpers from there. |
+| `TRADINGVIEW_MCP_DIR` | `mc_b_dot/collect.mjs` | Path of a checkout of MrToAster13/tradingview-mcp. The collector loads its chart and replay helpers from there. |
 
 A missing or invalid setting stops the command with `E_CONFIG` before it reads or draws on the chart or writes to disk. A tab 2 command may first ask the CDP port for its list of open pages, which is read only.
 

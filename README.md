@@ -34,6 +34,8 @@ The `--symbol` / `--tf` defaults also read from the `SYMBOL`, `TIMEFRAME`, and `
 - **`src/portfolio.js`** — paper positions, equity, drawdown. **`src/tui.js`** / **`src/chart.js`** — the terminal chart, the controls, and the live-poll loop (re-entrancy guarded).
 - Tests (`node --test`) cover the indicator math, the cipher warm-up and crosses, and the portfolio accounting. No network, synthetic candles.
 
+The combo tester, which tests small combinations of indicator signals on the live chart's history, is not in this repo. It lives in `scripts/combo` in [MrToAster13/tradingview-mcp](https://github.com/MrToAster13/tradingview-mcp/tree/main/scripts/combo), and that repo's `docs/combo-tester.md` describes it.
+
 ## Honest origin
 
 This repo was extracted from a fork of someone else's Claude + TradingView trading bot — that's its origin, and I flag it first. What ships here is only the replay/backtest engine, and I wrote that engine from scratch, end to end. The bot's live-order code is not mine, does not ship here, and no third-party trading code is included.
