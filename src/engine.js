@@ -33,9 +33,9 @@ export function createEngine({ candles, config, startEquity = 1000, mode = "repl
     if (actions.length > 6) actions.shift();
   }
 
-  // Act on every unprocessed bar up to i. `overrideLastDot` (live mode) swaps in
-  // the real Market Cipher signal for the newest bar.
-  function processTo(i, overrideLastDot = null) {
+  // Act on every unprocessed bar up to i. In live mode, `overrideDot` swaps in
+  // the real Market Cipher signal for bar `overrideAt`.
+  function processTo(i, overrideDot = null, overrideAt = i) {
     if (manual) {
       // Manual mode: bars just advance; entries/exits come from the keyboard.
       if (i > lastProcessed) lastProcessed = i;
@@ -43,7 +43,7 @@ export function createEngine({ candles, config, startEquity = 1000, mode = "repl
     }
     for (let j = lastProcessed + 1; j <= i; j++) {
       let cipher = cipherAt(series, j);
-      if (overrideLastDot && j === i) cipher = { ...cipher, dot: overrideLastDot, ready: true };
+      if (overrideDot && j === overrideAt) cipher = { ...cipher, dot: overrideDot, ready: true };
       const action = strategy().decide({
         cipher,
         candle: candles[j],
@@ -134,14 +134,16 @@ export function createEngine({ candles, config, startEquity = 1000, mode = "repl
     manualExit,
 
     // ── live: extend history with freshly closed candles ──
-    appendCandles(fresh, overrideLastDot = null) {
+    // A webhook signal applies to the first new bar, the next one it can affect.
+    appendCandles(fresh, overrideDot = null) {
       const lastTime = candles.length ? candles[candles.length - 1].time : 0;
       const added = fresh.filter((c) => c.time > lastTime);
       if (added.length === 0) return 0;
+      const firstNew = candles.length;
       candles.push(...added);
       series = computeCipher(candles);
       cursor = candles.length - 1;
-      processTo(cursor, overrideLastDot);
+      processTo(cursor, overrideDot, firstNew);
       return added.length;
     },
 

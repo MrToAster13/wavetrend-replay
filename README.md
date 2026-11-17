@@ -31,8 +31,9 @@ The `--symbol` / `--tf` defaults also read from the `SYMBOL`, `TIMEFRAME`, and `
 - **`src/engine.js`** — a high-water-mark bar processor: step back to review the chart without double-counting trades, warm-up nulls handled, state reset cleanly on a mode switch.
 - **`src/cipher.js`** — the WaveTrend / Market Cipher reconstruction, over a small pure-function indicator layer (`src/series.js`).
 - **`src/http.js`** — a bounded-timeout fetch wrapper that retries only idempotent GETs and tells a recoverable outage apart from a real bug.
-- **`src/portfolio.js`** — paper positions, equity, drawdown. **`src/tui.js`** / **`src/chart.js`** — the terminal chart, the controls, and the live-poll loop (re-entrancy guarded).
-- Tests (`node --test`) cover the indicator math, the cipher warm-up and crosses, and the portfolio accounting. No network, synthetic candles.
+- **`src/portfolio.js`** — paper positions, equity, drawdown. **`src/tui.js`** / **`src/chart.js`** — the terminal chart, the controls, and the live-poll timer (re-entrancy guarded).
+- **`src/live.js`** — the live poll step. It acts only on closed bars, 15 seconds after the close, so each bar is judged once on its final prices, and it holds a webhook signal until the next closed bar uses it. The TUI shows alerts received apart from alerts applied.
+- Tests (`node --test`) cover the indicator math, the cipher warm-up and crosses, the portfolio accounting, and the live poll step. No network, synthetic candles.
 
 The combo tester, which tests small combinations of indicator signals on the live chart's history, is not in this repo. It lives in `scripts/combo` in [MrToAster13/tradingview-mcp](https://github.com/MrToAster13/tradingview-mcp/tree/main/scripts/combo), and that repo's `docs/combo-tester.md` describes it.
 

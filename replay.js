@@ -20,6 +20,7 @@ import { createEngine } from "./src/engine.js";
 import { createWebhook } from "./src/webhook.js";
 import { STRATEGIES } from "./src/strategies.js";
 import { runReplay, runLive, runHeadless } from "./src/tui.js";
+import { closedBars, SETTLE_MS } from "./src/live.js";
 
 // Value-less booleans — never swallow the next token as their value, so
 // `--live 8787` can't silently disable live mode.
@@ -109,7 +110,9 @@ function applyInitialStrategy(engine, name) {
 
 async function loadEngine(config, endTime, bars, mode) {
   process.stdout.write(`Fetching ${bars} ${config.symbol} ${config.timeframe} candles from BitGet...\n`);
-  const candles = await fetchBars(config, { endTime, bars });
+  let candles = await fetchBars(config, { endTime, bars });
+  // Live mode acts on settled closed bars only, so drop the bar still forming.
+  if (mode === "live") candles = closedBars(candles, config.timeframe, Date.now(), SETTLE_MS);
   if (candles.length < 60) {
     throw new Error(`Only ${candles.length} candles returned — not enough for warm-up. Try a more recent date or a lower timeframe.`);
   }

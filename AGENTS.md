@@ -33,7 +33,7 @@ pull request (`.github/workflows/tests.yml`).
 - `src/` holds the modules: `engine.js` steps through bars, `cipher.js` and
   `series.js` hold the indicator math, `portfolio.js` the paper positions,
   `http.js` the candle fetch, `feed.js` the candle source, `webhook.js` the
-  live alert listener, `tui.js` and `chart.js` the terminal UI, and
+  live alert listener, `live.js` the live poll step, `tui.js` and `chart.js` the terminal UI, and
   `strategies.js` the entry and exit rules.
 - `test/` holds the `node --test` files.
 
