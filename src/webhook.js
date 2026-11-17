@@ -21,7 +21,8 @@
  * open port, pass --host 0.0.0.0 and set a secret.
  *
  * Uses Node's built-in http — no dependency. Stores only the latest signal; the
- * live poll step (src/live.js) takes it each poll.
+ * live poll step (src/live.js) takes it each poll. The last alert wins, and the
+ * one taken carries `replaced`, the count of untaken alerts it pushed out.
  */
 import { createServer } from "http";
 import { createHash, timingSafeEqual } from "crypto";
@@ -76,7 +77,8 @@ export function createWebhook({ port = 8787, host = "127.0.0.1", secret = null }
       if (result.status === 401) {
         res.writeHead(401).end("unauthorized");
       } else if (result.signal === "green" || result.signal === "red") {
-        latest = { signal: result.signal, symbol: result.symbol, receivedAt: new Date().toISOString() };
+        const replaced = latest ? latest.replaced + 1 : 0;
+        latest = { signal: result.signal, symbol: result.symbol, receivedAt: new Date().toISOString(), replaced };
         received++;
         res.writeHead(200).end("ok");
       } else {
