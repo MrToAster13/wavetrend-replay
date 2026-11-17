@@ -27,13 +27,15 @@ const closeBar200 = (s) => {
   s.exchange.bars = [candleAt(199), candleAt(200, FINAL_CLOSE), candleAt(201, 90)];
 };
 
+// Mirrors src/webhook.js: the newest alert wins, and take() reports how many
+// untaken alerts it replaced.
 function fakeWebhook() {
   let latest = null;
   let received = 0;
   return {
     port: 8787,
-    send(signal, symbol) {
-      latest = { signal, symbol, receivedAt: "t" };
+    send(signal, symbol, receivedAt = "t") {
+      latest = { signal, symbol, receivedAt, replaced: latest ? latest.replaced + 1 : 0 };
       received++;
     },
     take() {
@@ -252,3 +254,120 @@ test("an ignored symbol is shown without terminal control characters", async () 
   assert.ok(shown.startsWith("ETH"));
   assert.ok(shown.length <= 32);
 });
+
+// ── ELI-1198 ────────────────────────────────────────────────────────────────
+
+// Opens a position at bar 200 that only the webhook can cause.
+async function applyGreenAtBar200() {
+  const s = setup();
+  s.webhook.send("green", "BTCUSDT");
+  closeBar200(s);
+  await s.poller.poll();
+  assert.equal(s.engine.portfolio().position().entryPrice, FINAL_CLOSE);
+  return s;
+}
+
+test("a webhook override already applied survives a strategy swap", async () => {
+  const { engine } = await applyGreenAtBar200();
+  engine.swapStrategy(1);
+  engine.swapStrategy(-1);
+  assert.equal(engine.strategy().name, "cipher-cross");
+  assert.equal(engine.portfolio().isLong(), true);
+  assert.equal(engine.portfolio().position().entryPrice, FINAL_CLOSE);
+});
+
+test("a webhook override already applied survives a return from manual mode", async () => {
+  const { engine } = await applyGreenAtBar200();
+  engine.setManual(true);
+  engine.setManual(false);
+  assert.equal(engine.portfolio().isLong(), true);
+  assert.equal(engine.portfolio().position().entryPrice, FINAL_CLOSE);
+});
+
+test("live mode starts flat: no trade opens before the first live bar", async () => {
+  const s = setup();
+  const firstLive = T0 + 200 * HOUR;
+  closeBar200(s);
+  await s.poller.poll();
+  s.engine.swapStrategy(1);
+  s.engine.swapStrategy(-1);
+  const st = s.engine.portfolio().stats();
+  for (const t of st.allTrades) assert.ok(t.entryTime >= firstLive, `trade entered at ${t.entryTime}`);
+  assert.equal(st.trades, 0);
+  assert.deepEqual(s.engine.actions(), []);
+});
+
+test("after a pause of 5 bars the next poll backfills every missed closed bar once, in order", async () => {
+  const config = { symbol: "BTCUSDT", timeframe: TF };
+  const engine = createEngine({ candles: history(200), config, mode: "live" });
+  const clock = { now: T0 + 200 * HOUR + 10_000 };
+  // The exchange holds bars up to the one forming at clock.now and returns the
+  // newest `bars` of them, like BitGet's recent-candles endpoint.
+  const fetchBars = async (_config, { bars }) => {
+    const forming = Math.floor((clock.now - T0) / HOUR);
+    return history(forming + 1).slice(-bars);
+  };
+  const poller = createLivePoller({ engine, config, webhook: fakeWebhook(), fetchBars, now: () => clock.now });
+  await poller.poll();
+  assert.equal(engine.candles().length, 200);
+
+  // Asleep through bars 200 to 204. Bar 205 is forming when polling resumes.
+  clock.now = T0 + 205 * HOUR + AFTER_SETTLE;
+  await poller.poll();
+  await poller.poll();
+  const times = engine.candles().map((c) => c.time);
+  assert.equal(times.length, 205);
+  for (let i = 0; i < times.length; i++) assert.equal(times[i], T0 + i * HOUR);
+});
+
+test("a second alert before the next closed bar replaces the first and the status says so", async () => {
+  const { webhook, poller, clock, exchange, engine } = setup();
+  webhook.send("green", "BTCUSDT");
+  await poller.poll();
+  webhook.send("red", "BTCUSDT");
+  await poller.poll();
+  assert.equal(poller.status().pending, "red");
+  assert.equal(poller.status().replaced, 1);
+  assert.match(liveStatusLine(poller.status(), 8787), /replaced: 1/);
+  closeBar200({ clock, exchange });
+  await poller.poll();
+  assert.equal(engine.portfolio().isLong(), false);
+});
+
+test("an alert the webhook replaced before a poll took it counts as replaced", async () => {
+  const { webhook, poller } = setup();
+  webhook.send("green", "BTCUSDT");
+  webhook.send("red", "BTCUSDT");
+  await poller.poll();
+  assert.equal(poller.status().replaced, 1);
+  assert.equal(poller.status().pending, "red");
+});
+
+// ELI-1198 review finding 1: a backfill adds many bars at once. An alert must
+// land on the bar it came for, found from its receivedAt, not the oldest bar.
+function pausedSetup() {
+  const config = { symbol: "BTCUSDT", timeframe: TF };
+  const engine = createEngine({ candles: history(200), config, mode: "live" });
+  const clock = { now: T0 + 200 * HOUR + 10_000 };
+  const webhook = fakeWebhook();
+  const fetchBars = async (_config, { bars }) => history(Math.floor((clock.now - T0) / HOUR) + 1).slice(-bars);
+  const poller = createLivePoller({ engine, config, webhook, fetchBars, now: () => clock.now });
+  return { engine, clock, webhook, poller };
+}
+
+// Bar n closes at T0 + (n + 1) hours.
+for (const [label, bar, receivedAt] of [
+  ["a bar-close alert for the newest backfilled bar", 204, T0 + 205 * HOUR + 3_000],
+  ["an alert that arrived while an early backfilled bar was forming", 201, T0 + 201 * HOUR + 20 * 60_000],
+]) {
+  test(`${label} applies to that bar`, async () => {
+    const { engine, clock, webhook, poller } = pausedSetup();
+    await poller.poll();
+    webhook.send("green", "BTCUSDT", new Date(receivedAt).toISOString());
+    clock.now = T0 + 205 * HOUR + AFTER_SETTLE;
+    await poller.poll();
+    assert.equal(engine.candles().length, 205);
+    const entries = [...engine.portfolio().stats().allTrades.map((t) => t.entryTime), engine.portfolio().position()?.entryTime].filter(Boolean);
+    assert.deepEqual(entries, [T0 + bar * HOUR]);
+  });
+}

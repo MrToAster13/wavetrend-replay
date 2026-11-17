@@ -65,7 +65,9 @@ Put the same value in the TradingView alert message, set the webhook URL to `htt
 {"signal":"green","symbol":"BTCUSDT","secret":"pick-a-long-random-value"}
 ```
 
-Use `"red"` for a red dot. A POST without the matching `secret` gets 401 and changes nothing. Without `WEBHOOK_SECRET`, any caller that reaches the port can post signals, and the startup line warns about it. Keep the secret out of the repo.
+Use `"red"` for a red dot. An alert waits for the next closed bar. If a second alert arrives first, the last alert wins, and the live screen shows how many were replaced. Live mode starts flat at the first live bar: the history it loads is shown, not traded, and a strategy swap keeps the alerts already applied. After a pause, such as a laptop asleep, the next poll backfills every bar it missed, in order.
+
+A POST without the matching `secret` gets 401 and changes nothing. Without `WEBHOOK_SECRET`, any caller that reaches the port can post signals, and the startup line warns about it. Keep the secret out of the repo.
 
 ## How it's built
 

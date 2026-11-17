@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import { readFileSync } from "node:fs";
 import { createWebhook, webhookOptions, startupMessage } from "../src/webhook.js";
 import { webhookNotice } from "../src/tui.js";
 
@@ -185,4 +186,22 @@ test("the live TUI notice keeps the bound address and the no-secret warning on s
   assert.match(notice, /http:\/\/0\.0\.0\.0:8787\/alert/);
   assert.match(notice, /WEBHOOK_SECRET is not set/);
   assert.equal(webhookNotice(""), "");
+});
+
+// ELI-1198: two alerts before one take. The last one wins and says how many it replaced.
+test("take returns the newest alert with the count of alerts it replaced", async () => {
+  await withWebhook({}, async (webhook, bound) => {
+    await send(bound, { body: json({ signal: "green", symbol: "BTCUSDT" }) });
+    await send(bound, { body: json({ signal: "red", symbol: "BTCUSDT" }) });
+    const sig = webhook.take();
+    assert.equal(sig.signal, "red");
+    assert.equal(sig.replaced, 1);
+    await send(bound, { body: json({ signal: "green", symbol: "BTCUSDT" }) });
+    assert.equal(webhook.take().replaced, 0);
+  });
+});
+
+test("the README states which alert wins when two arrive before one closed bar", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  assert.match(readme, /last (alert )?wins/i);
 });

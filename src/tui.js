@@ -264,12 +264,13 @@ export function runHeadless(engine, config, { label = "" } = {}) {
 
 // One status line under the live chart. Received counts every alert the
 // webhook accepted. Applied counts the ones a closed bar actually used.
-export function liveStatusLine({ received, applied, pending, dropped }, port) {
+export function liveStatusLine({ received, applied, pending, dropped, replaced = 0 }, port) {
   if (received === 0) {
     return C.dim(`no Cipher alerts yet — using reconstruction (webhook on :${port}/alert)`);
   }
   let line = C.cyan(`live Cipher alerts received: ${received}  applied: ${applied}`);
   if (pending) line += C.dim(`  pending: ${pending} (waits for the next closed bar)`);
+  if (replaced) line += C.dim(`  replaced: ${replaced} (a newer alert came before the bar closed, the last one wins)`);
   if (dropped) line += "\n " + C.red(`ignored an alert for ${dropped}`);
   return line;
 }

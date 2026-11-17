@@ -7,6 +7,10 @@
  * at the chart never double-counts a trade. Swapping the strategy resets the
  * paper account and re-runs it over the bars seen so far — that's what "change
  * strategy on the fly" means here.
+ *
+ * Live mode starts flat at the first live bar: the loaded history is shown, not
+ * traded. Webhook signals a live bar used are kept per bar, so a rebuild after a
+ * strategy swap or a return from manual mode replays them too.
  */
 import { computeCipher, cipherAt } from "./cipher.js";
 import { createPortfolio } from "./portfolio.js";
@@ -21,8 +25,12 @@ export function createEngine({ candles, config, startEquity = 1000, mode = "repl
 
   // Replay starts at the first bar with a valid Cipher reading (post warm-up).
   const startIndex = series.wt2.findIndex((v) => v != null);
-  let cursor = startIndex < 0 ? candles.length - 1 : startIndex;
-  let lastProcessed = cursor - 1;
+  // The first bar the strategy may trade. Live trades only bars that close
+  // after the engine starts, so the history it loads is never traded.
+  const firstTradable = mode === "live" ? candles.length : startIndex;
+  let cursor = mode === "live" || startIndex < 0 ? candles.length - 1 : startIndex;
+  let lastProcessed = mode === "live" ? cursor : cursor - 1;
+  const overrides = new Map(); // bar index -> the webhook dot that bar used
 
   const strategy = () => STRATEGIES[strategyIndex];
 
@@ -33,9 +41,9 @@ export function createEngine({ candles, config, startEquity = 1000, mode = "repl
     if (actions.length > 6) actions.shift();
   }
 
-  // Act on every unprocessed bar up to i. In live mode, `overrideDot` swaps in
-  // the real Market Cipher signal for bar `overrideAt`.
-  function processTo(i, overrideDot = null, overrideAt = i) {
+  // Act on every unprocessed bar up to i. In live mode, a bar with an entry in
+  // `overrides` uses the real Market Cipher signal instead of the reconstruction.
+  function processTo(i) {
     if (manual) {
       // Manual mode: bars just advance; entries/exits come from the keyboard.
       if (i > lastProcessed) lastProcessed = i;
@@ -43,7 +51,7 @@ export function createEngine({ candles, config, startEquity = 1000, mode = "repl
     }
     for (let j = lastProcessed + 1; j <= i; j++) {
       let cipher = cipherAt(series, j);
-      if (overrideDot && j === overrideAt) cipher = { ...cipher, dot: overrideDot, ready: true };
+      if (overrides.has(j)) cipher = { ...cipher, dot: overrides.get(j), ready: true };
       const action = strategy().decide({
         cipher,
         candle: candles[j],
@@ -67,8 +75,8 @@ export function createEngine({ candles, config, startEquity = 1000, mode = "repl
     const highWater = Math.max(lastProcessed, cursor);
     portfolio = createPortfolio({ startEquity });
     actions.length = 0;
-    if (startIndex < 0) return; // no bar ever cleared warm-up — nothing to run
-    lastProcessed = startIndex - 1;
+    if (firstTradable < 0) return; // no bar ever cleared warm-up — nothing to run
+    lastProcessed = firstTradable - 1;
     processTo(highWater);
   }
 
@@ -134,8 +142,9 @@ export function createEngine({ candles, config, startEquity = 1000, mode = "repl
     manualExit,
 
     // ── live: extend history with freshly closed candles ──
-    // A webhook signal applies to the first new bar, the next one it can affect.
-    appendCandles(fresh, overrideDot = null) {
+    // A webhook signal applies to the new bar at overrideTime, or to the first
+    // new bar when overrideTime names none of them.
+    appendCandles(fresh, overrideDot = null, overrideTime = null) {
       const lastTime = candles.length ? candles[candles.length - 1].time : 0;
       const added = fresh.filter((c) => c.time > lastTime);
       if (added.length === 0) return 0;
@@ -143,7 +152,9 @@ export function createEngine({ candles, config, startEquity = 1000, mode = "repl
       candles.push(...added);
       series = computeCipher(candles);
       cursor = candles.length - 1;
-      processTo(cursor, overrideDot, firstNew);
+      const at = added.findIndex((c) => c.time === overrideTime);
+      if (overrideDot && !manual) overrides.set(firstNew + Math.max(0, at), overrideDot);
+      processTo(cursor);
       return added.length;
     },
 
