@@ -1,0 +1,10 @@
+{
+  "name": "wavetrend-replay-backtest",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Live-chart backtester for wavetrend-replay. Its one dependency is the CDP client. Install with npm ci --prefix backtest from the repo root.",
+  "license": "MIT",
+  "dependencies": {
+    "chrome-remote-interface": "0.33.3"
+  }
+}

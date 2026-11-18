@@ -21,11 +21,13 @@ A missing or invalid setting stops the command with `E_CONFIG` before it reads o
 
 ## The CDP client
 
-The repo has no dependencies, so the CDP client is not installed with it. The commands that talk to a live chart (`mc_basic_1m/cli.mjs`, `mc_b_dot/read.mjs` and `mc_b_dot/collect.mjs`) need it:
+The replay tool has no dependencies, so the CDP client is not installed with it. The commands that talk to a live chart (`mc_basic_1m/cli.mjs`, `mc_b_dot/read.mjs` and `mc_b_dot/collect.mjs`) need it. `backtest/package.json` pins `chrome-remote-interface` to one exact version, and `backtest/package-lock.json` records the integrity hash of it and of each package it pulls in. Install it from the repo root:
 
 ```
-npm install --no-save chrome-remote-interface@^0.33.2
+npm ci --prefix backtest
 ```
+
+This puts the client in `backtest/node_modules`, which git ignores.
 
 `npm test` does not need it. No test imports `cdp.mjs` or `cli.mjs`, and `lint.test.mjs` checks that.
 
