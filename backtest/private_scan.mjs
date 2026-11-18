@@ -34,8 +34,13 @@ export function findChartIds(text) {
   return hits;
 }
 
+// The npm manifest and lockfile that pin the CDP client (ELI-1172). They are the only JSON
+// files allowed under backtest/, and only at these exact paths.
+const NPM_FILES = new Set(['backtest/package.json', 'backtest/package-lock.json']);
+
 /** True for a report, strategy note, trade log or data file that must not be committed. */
 export function isPrivateBacktestPath(p) {
+  if (NPM_FILES.has(p)) return false;
   const base = p.split('/').pop();
   return /\.html?$/i.test(p)
     || /master_market_cypher/i.test(p)

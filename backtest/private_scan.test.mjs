@@ -60,6 +60,16 @@ test('report rule catches reports, trade logs and data files under backtest/', (
   }
 });
 
+test('report rule allows only the backtest manifest and lockfile among JSON files (ELI-1172)', () => {
+  for (const p of ['backtest/package.json', 'backtest/package-lock.json']) {
+    assert.equal(isPrivateBacktestPath(p), false, p);
+  }
+  for (const p of ['backtest/mc_b_dot/package.json', 'backtest/mc_basic_1m/package-lock.json', 'backtest/my_package.json',
+    'backtest/package.json.json', 'backtest/old/package-lock.json', 'backtest/package.jsonl']) {
+    assert.equal(isPrivateBacktestPath(p), true, p);
+  }
+});
+
 test('report rule leaves the moved code and docs alone', () => {
   for (const p of ['backtest/README.md', 'backtest/mc_basic_1m/report.mjs', 'backtest/mc_basic_1m/report_write.test.mjs', 'backtest/mc_basic_1m/CONTEXT.md', 'backtest/mc_basic_1m/ADR-chart-session-adapter.md', 'backtest/mc_b_dot/mc_b_dot_strategy.pine']) {
     assert.equal(isPrivateBacktestPath(p), false, p);

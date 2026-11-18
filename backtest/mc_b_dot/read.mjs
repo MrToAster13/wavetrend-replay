@@ -9,13 +9,13 @@
 import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-// wavetrend-replay has no dependencies, so the CDP client loads only when a chart is opened.
-// Install it next to the repo first: npm install --no-save chrome-remote-interface
+// The replay tool has no dependencies, so the CDP client loads only when a chart is opened.
+// backtest/package.json pins it. Install it from the repo root first: npm ci --prefix backtest
 async function loadCdp() {
   try {
     return (await import('chrome-remote-interface')).default;
   } catch (e) {
-    const err = new Error(`chrome-remote-interface is not installed (${e.message}); run npm install --no-save chrome-remote-interface`);
+    const err = new Error(`chrome-remote-interface is not installed (${e.message}); run npm ci --prefix backtest from the repo root`);
     err.code = 'E_CDP_LIB';
     throw err;
   }
